@@ -4,7 +4,9 @@
 
 这一阶段要建立最小但真实的 Markdown AST：普通文本解析为段落，段落中包含文本节点。暂时不要解析标题、链接、行内代码或 HTML。
 
-## 推荐的模块职责
+## 小提示
+
+### 推荐的模块职责
 
 ```text
 src/
@@ -15,9 +17,7 @@ src/
 
 模块拆分是代码组织方式。现在只实现 `Document`、`Paragraph` 和 `Text` 三种概念，后续再随着 Markdown 支持范围增长扩展 AST。
 
-## 从 `lib.rs` 公开 API
-
-初学者容易创建了模块文件，却忘记在 crate 根文件 `lib.rs` 中接入它们。文件存在并不代表 Rust 会自动编译或公开它们。
+### 从 `lib.rs` 公开 API
 
 最小的 `lib.rs` 可以这样写：
 
@@ -45,7 +45,7 @@ mod types;
 
 注意：`pub use` 只能重新导出已经在对应模块中声明为 `pub` 的项目。例如 `types.rs` 中的 `Document` 必须是 `pub struct Document`。
 
-## 为什么要写 `#[derive(...)]`
+### 为什么要写 `#[derive(...)]`
 
 AST 类型通常需要被测试比较、被调试输出，也经常需要复制一份来构造测试数据。Rust 不会自动为自定义类型提供这些能力，需要通过 `derive` 请求编译器生成常用实现：
 
@@ -84,9 +84,28 @@ pub enum InlineNode {
 assert_eq!(actual, expected);
 ```
 
-编译器会告诉你类型没有实现 `PartialEq`。这正是 Rust 学习中很重要的一点：能力不是默认附着在类型上的，而是通过 trait 明确声明。
+编译器会告诉你类型没有实现 `PartialEq`。能力不是默认附着在类型上的，而是通过 trait 明确声明。
 
-## 测试应该放在哪里
+### 绑定、借用表达式与引用类型
+
+```rust
+pub fn parse_markdown(markdown: &str) -> Document
+```
+
+先区分三个概念：
+
+- **绑定**：用 `let` 把一个名字绑定到一个值，例如 `let owned = String::from("hello");`。
+- **借用表达式**：在值前面写 `&`，创建对这个值的借用，并得到一个引用值。例如，`&owned` 这个表达式的类型是 `&String`：
+
+  ```rust
+  let owned = String::from("hello");
+  let borrowed = &owned; // borrowed 的类型是 &String
+  ```
+
+  `&String::from("hello")` 的类型也确实是 `&String`，但它借用的是临时创建的 `String`，通常只适合立即传给函数，不适合保存为长期使用的引用。
+- **引用类型**：在类型前面写 `&`，表示这个类型是指向 `T` 的引用类型，例如 `&String` 或 `&str`。
+
+### 测试应该放在哪里
 
 这个阶段有三种合理位置，它们用途不同：
 
@@ -102,7 +121,7 @@ tests/parse_markdown.rs    # 集成测试，从 crate 外部验证公开 API
 
 这一步不要求把所有测试都迁移到 `tests/`。建议先在 `parser.rs` 写解析行为测试，再额外添加一个很小的集成测试验证顶层导出。
 
-## 不要丢掉 Cargo 自动生成的示例
+### 不要丢掉 Cargo 自动生成的示例
 
 `cargo new --lib` 会生成一个最小的库和测试。它不是无用代码，而是一个可以回看的 Rust 模板。开始改造前，建议把它记录在本教程中：
 
@@ -146,18 +165,6 @@ pub fn parse_markdown(markdown: &str) -> Document;
 - 当前阶段不需要返回 `Result`，因为还没有定义解析失败的情况。
 
 你需要自己决定 AST 的字段是否公开，以及如何让测试观察解析结果。为了让测试能够直接比较结果，可以为 AST 类型派生 `Debug`、`Clone` 和 `PartialEq`；这不是唯一方案，但很适合当前学习阶段。
-
-## 先做设计猜想
-
-在写 Rust 代码前，先回答：
-
-1. TypeScript 中的 `Document` 会是什么类型？
-2. `markdown: &str` 和 AST 中的 `String` 分别适合什么场景？
-3. `parse_markdown` 返回拥有数据的 `Document`，还是借用调用者的数据？为什么？
-4. 为什么空输入应表示为 `children: vec![]`，而不是 `Option<String>`？
-5. `mod types;` 和 `pub use types::Document;` 分别解决什么问题？
-6. `Debug`、`Clone` 和 `PartialEq` 分别解决什么问题？为什么嵌套 AST 类型也要派生它们？
-7. 为什么解析器测试可以放在 `parser.rs`，而公开 API 测试适合放在 `crates/markdown/tests/`？
 
 ## 实现任务
 
@@ -207,8 +214,29 @@ cargo doc --workspace --no-deps
 
 完成后把以下内容发给我：
 
-- 你对上面四个设计问题的回答。
 - `src/lib.rs` 的实现。
 - 验收命令的结果。
 
 下一阶段会在这个最小 AST 上增加标题。当前阶段明确不做：换行符规范化、BOM 处理、行内代码、链接、标题、HTML renderer 和复杂错误处理。先把一个小而完整的 AST 流程做通，比同时准备未来所有节点更重要。
+
+## 可选复盘
+
+下面的 Markdown 字符串包含两个段落：
+
+```markdown
+hello
+
+world
+```
+
+请画出或写出它解析后的 AST 结构。预期结构是一个 `Document`，其中包含两个按顺序排列的 `Paragraph`，每个段落分别包含一个 `Text` 节点：
+
+```text
+Document
+├── Paragraph
+│   └── Text("hello")
+└── Paragraph
+    └── Text("world")
+```
+
+这个复盘只检查你是否理解输入文本、空行和 AST 节点之间的对应关系，不是额外的实现要求。
